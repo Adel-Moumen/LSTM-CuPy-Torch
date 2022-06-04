@@ -23,6 +23,8 @@ class LSTM_Layer(torch.nn.Module):
         self.batch_size = batch_size
         self.bidirectional = bidirectional
         self.dropout = dropout
+        self.bias = bias
+        self.num_layers = num_layers
 
         self.w = nn.Linear(self.input_size, 4 * self.hidden_size, bias=self.bias)
         self.u = nn.Linear(self.hidden_size, 4 * self.hidden_size, bias=self.bias)
@@ -73,9 +75,6 @@ class LSTM_Layer(torch.nn.Module):
         return h, c
 
 
-def lstm_cell(x, ht):
-
-    ...
 
 
 
@@ -89,3 +88,5 @@ if __name__ == "__main__":
     xt = torch.randn(batch_size, input_size)
     w = nn.Linear(input_size, 4 * hidden_size, bias=True)
     u = nn.Linear(hidden_size, 4 * hidden_size, bias=True)
+
+    LSTM_Layer()
