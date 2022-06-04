@@ -156,7 +156,7 @@ class LSTM_Layer(torch.nn.Module):
 
 
     def forward(self, x, hx: Optional[Tuple[torch.Tensor, torch.Tensor]] = None):
-        # type: (torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]) -> torch.Tensor # noqa F821
+        # type: (torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor] # noqa F821
         """Returns the output of the liGRU layer.
         Arguments
         ---------
