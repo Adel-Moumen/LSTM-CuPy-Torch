@@ -37,8 +37,7 @@ class LSTM_Layer(torch.nn.Module):
         self.register_buffer("c_init", torch.zeros(1, self.hidden_size))
 
         # Preloading dropout masks (gives some speed improvement)
-        # TODO add init_drop
-        #self._init_drop(self.batch_size)
+        self._init_drop()
 
 
     def forward(self, x, hx: Optional[Tuple[torch.Tensor, torch.Tensor]] = None):
@@ -86,7 +85,7 @@ class LSTM_Layer(torch.nn.Module):
 
         # Sampling dropout mask
         # TODO: add drop mask
-        #drop_mask = self._sample_drop_mask(w)
+        drop_mask = self._sample_drop_mask(wx)
 
         # Loop over time axis
         for k in range(wx.shape[1]):
@@ -98,7 +97,7 @@ class LSTM_Layer(torch.nn.Module):
             ot = torch.sigmoid(ot)
 
             ct = ft * ct + it * gt 
-            ht = ot * torch.tanh(ct)
+            ht = ot * torch.tanh(ct) * drop_mask
 
             hiddens.append(ht)
             cell_state.append(ct)
@@ -107,6 +106,45 @@ class LSTM_Layer(torch.nn.Module):
         h = torch.stack(hiddens, dim=1)
         c = torch.stack(cell_state, dim=1)
         return h, c
+
+    def _sample_drop_mask(self, w):
+        """Selects one of the pre-defined dropout masks"""
+        if self.training:
+
+            # Sample new masks when needed
+            if self.drop_mask_cnt + self.batch_size > self.N_drop_masks:
+                self.drop_mask_cnt = 0
+                self.drop_masks = self.drop(
+                    torch.ones(
+                        self.N_drop_masks, self.hidden_size, device=w.device
+                    )
+                ).data
+
+            # Sampling the mask
+            drop_mask = self.drop_masks[
+                self.drop_mask_cnt : self.drop_mask_cnt + self.batch_size
+            ]
+            self.drop_mask_cnt = self.drop_mask_cnt + self.batch_size
+
+        else:
+            self.drop_mask_te = self.drop_mask_te.to(w.device)
+            drop_mask = self.drop_mask_te
+
+        return drop_mask
+
+    def _init_drop(self):
+        """Initializes the recurrent dropout operation. To speed it up,
+        the dropout masks are sampled in advance.
+        """
+        self.drop = torch.nn.Dropout(p=self.dropout, inplace=False)
+        self.N_drop_masks = 16000
+        self.drop_mask_cnt = 0
+
+        self.register_buffer(
+            "drop_masks",
+            self.drop(torch.ones(self.N_drop_masks, self.hidden_size)).data,
+        )
+        self.register_buffer("drop_mask_te", torch.tensor([1.0]).float())
 
     def _change_batch_size(self, x):
         """This function changes the batch size when it is different from
