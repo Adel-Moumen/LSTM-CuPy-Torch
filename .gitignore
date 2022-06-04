@@ -1,2 +1,4 @@
 LSTM_CuPy_Torch.egg-info/*
 notebook/.ipynb_checkpoints/Untitled-checkpoint.ipynb
+experiment/toy_task/__pycache__/util.cpython-39.pyc
+src/__pycache__/lstm.cpython-39.pyc
