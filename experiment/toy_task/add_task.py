@@ -40,11 +40,14 @@ model_arg_parser.add_argument("--seq_length", type=int, default=200,
 args = main_arg_parser.parse_args()
 
 class Model(nn.Module):
-    def __init__(self, rnn):
+    def __init__(self, rnn, jit=False):
         super().__init__()
-        self.rnn = rnn #torch.jit.script(rnn)
+
+        self.rnn = rnn
         self.output_layer = nn.Linear(args.hidden_size, 1)
-        self.ht = None
+        self.jit = jit 
+        if self.jit:
+            self.rnn = torch.jit.script(self.rnn)
 
     def forward(self, input, hx=None):
         if hx is None:
@@ -147,7 +150,7 @@ if __name__ == "__main__":
     print(f"LSTM PYTORCH LOSS AVG {loss_avg}")
 
     ########## CUSTOM 
-    
+
     Util.seed_everything(args.seed)
     rnn_custom = LSTM(
         input_shape=model_params['input_shape'],
@@ -155,7 +158,7 @@ if __name__ == "__main__":
         num_layers=model_params['num_layers'],
     )
     delay_print = 100
-    net = Model(rnn=rnn_custom).to(args.device).float()
+    net = Model(rnn=rnn_custom, jit=True).to(args.device).float()
     loss_avg = train(net=net, delay_print=delay_print)
     print(f"LSTM CUSTOM LOSS AVG {loss_avg}")
                 
