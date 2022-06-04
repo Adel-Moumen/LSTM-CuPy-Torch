@@ -42,16 +42,16 @@ args = main_arg_parser.parse_args()
 class Model(nn.Module):
     def __init__(self, rnn):
         super().__init__()
-        self.rnn = torch.jit.script(rnn)
+        self.rnn = rnn #torch.jit.script(rnn)
         self.output_layer = nn.Linear(args.hidden_size, 1)
         self.ht = None
 
     def forward(self, input, hx=None):
         if hx is None:
-            output, h, c = self.rnn(input)
+            output, (h, c) = self.rnn(input)
         else:
 
-            output,  h, c = self.rnn(input, hx)
+            output, (h, c) = self.rnn(input, hx)
 
         output = self.output_layer(output[:, -1, :])
         return output
@@ -82,32 +82,15 @@ def generate_batch(seq_length, batch_size):
     return x, y
 
 
-if __name__ == "__main__":
-    Util.print_setup(args=args)
-    Util.seed_everything(args.seed)
 
-    model_params = {
-        'input_shape': (args.batch_size, args.seq_length, 2),
-        'hiddden_size': args.hidden_size,
-        'num_layers': args.num_layers,
-    }  
-    
-
-    rnn = LSTM(
-        input_shape=model_params['input_shape'],
-        hidden_size=model_params['hiddden_size'],
-        num_layers=model_params['num_layers'],
-    )
-
-    net = Model(rnn=rnn).to(args.device).float()
+def train(net, delay_print):
 
     optimizer = optim.Adam(net.parameters(), lr=args.learning_rate)
 
     mse_loss_fn = nn.MSELoss()
 
-    delay_print = 50
-
     net.train()
+    minimum_loss = 0
     for epoch in range(args.epochs+1):
 
         x, y = generate_batch(
@@ -128,7 +111,51 @@ if __name__ == "__main__":
         optimizer.step()
 
         with torch.no_grad():
-        
+            minimum_loss += loss
             if epoch % delay_print == 0:
                 print(f"loss = {loss}")
+    
+    return minimum_loss / args.epochs+1
+
+if __name__ == "__main__":
+    Util.print_setup(args=args)
+
+    model_params = {
+        'input_shape': (args.batch_size, args.seq_length, 2),
+        'hiddden_size': args.hidden_size,
+        'num_layers': args.num_layers,
+    }  
+    
+
+    ########## PYTORCH 
+
+    Util.seed_everything(args.seed)
+    rnn_pytorch =  torch.nn.LSTM(
+        input_size=model_params['input_shape'][2],
+        hidden_size=model_params['hiddden_size'],
+        num_layers=model_params['num_layers'],
+        dropout=0,
+        bidirectional=False,
+        bias=True,
+        batch_first=True,
+    )
+    
+
+    delay_print = 100
+    net = Model(rnn=rnn_pytorch).to(args.device).float()
+    loss_avg = train(net=net, delay_print=delay_print)
+    print(f"LSTM PYTORCH LOSS AVG {loss_avg}")
+
+    ########## CUSTOM 
+    
+    Util.seed_everything(args.seed)
+    rnn_custom = LSTM(
+        input_shape=model_params['input_shape'],
+        hidden_size=model_params['hiddden_size'],
+        num_layers=model_params['num_layers'],
+    )
+    delay_print = 100
+    net = Model(rnn=rnn_custom).to(args.device).float()
+    loss_avg = train(net=net, delay_print=delay_print)
+    print(f"LSTM CUSTOM LOSS AVG {loss_avg}")
                 
