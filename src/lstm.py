@@ -189,9 +189,6 @@ class LSTM_Layer(torch.nn.Module):
             c_b = c_b.flip(1)
             c = torch.cat([c_f, c_b], dim=2)
 
-        print(f"lay h = {h.shape}")
-        print(f"lay c = {c.shape}")
-
         return h, c
 
 
@@ -226,8 +223,6 @@ class LSTM_Layer(torch.nn.Module):
         # Stacking states
         h = torch.stack(hiddens, dim=1)
         c = torch.stack(cell_state, dim=1)
-        print(f"h = {h.shape}")
-        print(f"c = {c.shape}")
         return h, c
 
     def _sample_drop_mask(self, w):
@@ -325,8 +320,8 @@ if __name__ == "__main__":
     inp_tensor = torch.rand([4, 10, 20])
     net = LSTM(input_shape=inp_tensor.shape, hidden_size=5)
     out_tensor, h, c = net(inp_tensor)
-    print(c.shape)
-    print(h.shape)
+    
+    
 
     out_tensor, h, c = net(inp_tensor, (h, c))
     
