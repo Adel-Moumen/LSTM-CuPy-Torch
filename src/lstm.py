@@ -169,16 +169,14 @@ class LSTM_Layer(torch.nn.Module):
 
         # Change batch size if needed
         self._change_batch_size(x)
-
-        # Feed-forward affine transformations (all steps in parallel)
-        w = self.w(x)
+        
         
         # Processing time steps
         if hx is not None:
             h, c, = hx 
-            h, c = self._lstm_cell(w, h, c)
+            h, c = self._lstm_cell(x, h, c)
         else:
-            h, c = self._lstm_cell(w, self.h_init, self.c_init)
+            h, c = self._lstm_cell(x, self.h_init, self.c_init)
 
         if self.bidirectional:
             h_f, h_b = h.chunk(2, dim=0)
@@ -192,7 +190,7 @@ class LSTM_Layer(torch.nn.Module):
         return h, c
 
 
-    def _lstm_cell(self, wx: torch.Tensor, ht: torch.Tensor, ct: torch.Tensor):
+    def _lstm_cell(self, x: torch.Tensor, ht: torch.Tensor, ct: torch.Tensor):
         """Returns the hidden states for each time step.
         Arguments
         ---------
@@ -201,6 +199,9 @@ class LSTM_Layer(torch.nn.Module):
         """
         hiddens = []
         cell_state = []
+
+        # Feed-forward affine transformations (all steps in parallel)
+        wx = self.w(x)
 
         # Sampling dropout mask
         drop_mask = self._sample_drop_mask(wx)
