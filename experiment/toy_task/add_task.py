@@ -42,7 +42,7 @@ args = main_arg_parser.parse_args()
 class Model(nn.Module):
     def __init__(self, rnn):
         super().__init__()
-        self.rnn = rnn
+        self.rnn = torch.jit.script(rnn)
         self.output_layer = nn.Linear(args.hidden_size, 1)
         self.ht = None
 
