@@ -161,4 +161,3 @@ if __name__ == "__main__":
     net = Model(rnn=rnn_custom, jit=True).to(args.device).float()
     loss_avg = train(net=net, delay_print=delay_print)
     print(f"LSTM CUSTOM LOSS AVG {loss_avg}")
-                
