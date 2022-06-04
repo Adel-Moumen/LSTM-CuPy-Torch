@@ -75,18 +75,26 @@ class LSTM_Layer(torch.nn.Module):
         return h, c
 
 
-
-
-
-
 if __name__ == "__main__":
 
     hidden_size = 5
     input_size = 5
     batch_size = 1
-    ht = torch.randn(batch_size, hidden_size)
+    seq_length=10
+    ht = torch.randn(batch_size, seq_length, hidden_size)
+    ct = torch.randn(batch_size, seq_length, hidden_size)
     xt = torch.randn(batch_size, input_size)
     w = nn.Linear(input_size, 4 * hidden_size, bias=True)
     u = nn.Linear(hidden_size, 4 * hidden_size, bias=True)
 
-    LSTM_Layer()
+    lstm_layer = LSTM_Layer(
+        input_size=input_size,
+        hidden_size=hidden_size,
+        num_layers=1,
+        batch_size=batch_size,
+        dropout=0.0,
+        bias=True,
+        bidirectional=False
+    )
+
+    
