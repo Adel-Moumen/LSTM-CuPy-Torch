@@ -34,12 +34,47 @@ class LSTM_Layer(torch.nn.Module):
 
         # Initial state
         self.register_buffer("h_init", torch.zeros(1, self.hidden_size))
+        self.register_buffer("c_init", torch.zeros(1, self.hidden_size))
 
         # Preloading dropout masks (gives some speed improvement)
         # TODO add init_drop
         #self._init_drop(self.batch_size)
 
-    def _lstm_cell(self, x: torch.Tensor, ht: torch.Tensor, ct: torch.Tensor):
+
+    def forward(self, x, hx: Optional[Tuple[torch.Tensor, torch.Tensor]] = None):
+        # type: (torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]) -> torch.Tensor # noqa F821
+        """Returns the output of the liGRU layer.
+        Arguments
+        ---------
+        x : torch.Tensor
+            Input tensor.
+        """
+        if self.bidirectional:
+            x_flip = x.flip(1)
+            x = torch.cat([x, x_flip], dim=0)
+
+        # Change batch size if needed
+        self._change_batch_size(x)
+
+        # Feed-forward affine transformations (all steps in parallel)
+        w = self.w(x)
+        
+        # Processing time steps
+        if hx is not None:
+            h, c = hx 
+            h = self._lstm_cell(w, h, c)
+        else:
+            h = self._lstm_cell(w, self.h_init, self.c_init)
+
+        if self.bidirectional:
+            h_f, h_b = h.chunk(2, dim=0)
+            h_b = h_b.flip(1)
+            h = torch.cat([h_f, h_b], dim=2)
+
+        return h
+
+
+    def _lstm_cell(self, wx: torch.Tensor, ht: torch.Tensor, ct: torch.Tensor):
         """Returns the hidden states for each time step.
         Arguments
         ---------
@@ -53,9 +88,8 @@ class LSTM_Layer(torch.nn.Module):
         # TODO: add drop mask
         #drop_mask = self._sample_drop_mask(w)
 
-        wx = self.w(x)
         # Loop over time axis
-        for k in range(w.shape[1]):
+        for k in range(wx.shape[1]):
             gates = wx[:, k] + self.u(ht)
             it, ft, gt, ot = gates.chunk(4, dim=-1)
             it = torch.sigmoid(it)
@@ -74,6 +108,21 @@ class LSTM_Layer(torch.nn.Module):
         c = torch.stack(cell_state, dim=1)
         return h, c
 
+    def _change_batch_size(self, x):
+        """This function changes the batch size when it is different from
+        the one detected in the initialization method. This might happen in
+        the case of multi-gpu or when we have different batch sizes in train
+        and test. We also update the h_int and drop masks.
+        """
+        if self.batch_size != x.shape[0]:
+            self.batch_size = x.shape[0]
+
+            if self.training:
+                self.drop_masks = self.drop(
+                    torch.ones(
+                        self.N_drop_masks, self.hidden_size, device=x.device,
+                    )
+                ).data
 
 if __name__ == "__main__":
 
@@ -81,12 +130,8 @@ if __name__ == "__main__":
     input_size = 5
     batch_size = 1
     seq_length=10
-    ht = torch.randn(batch_size, seq_length, hidden_size)
-    ct = torch.randn(batch_size, seq_length, hidden_size)
-    xt = torch.randn(batch_size, input_size)
-    w = nn.Linear(input_size, 4 * hidden_size, bias=True)
-    u = nn.Linear(hidden_size, 4 * hidden_size, bias=True)
-
+    
+    x = torch.randn(batch_size, seq_length, input_size)
     lstm_layer = LSTM_Layer(
         input_size=input_size,
         hidden_size=hidden_size,
@@ -97,4 +142,6 @@ if __name__ == "__main__":
         bidirectional=False
     )
 
+    out = lstm_layer(x)
+    print(out)
     
