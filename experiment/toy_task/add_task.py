@@ -128,7 +128,6 @@ if __name__ == "__main__":
         optimizer.step()
 
         with torch.no_grad():
-            
         
             if epoch % delay_print == 0:
                 print(f"loss = {loss}")
