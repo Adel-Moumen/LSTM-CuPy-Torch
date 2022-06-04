@@ -79,7 +79,7 @@ class LSTM(torch.nn.Module):
         # run lstm
         output, hh, ct = self._forward_lstm(x, hx=hx)
 
-        return output, hh, ct
+        return output, (hh, ct)
 
     def _forward_lstm(self, x, hx: Optional[Tensor]):
         """Returns the output of the vanilla liGRU.
