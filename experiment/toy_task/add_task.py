@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from src.lstm import LSTM
 from util import Util
 
 import numpy as np
@@ -121,6 +120,7 @@ def train(net, delay_print):
     return minimum_loss / args.epochs+1
 
 if __name__ == "__main__":
+    import time 
     Util.print_setup(args=args)
 
     model_params = {
@@ -144,12 +144,39 @@ if __name__ == "__main__":
     )
     
 
-    delay_print = 100
+    delay_print = 10
     net = Model(rnn=rnn_pytorch).to(args.device).float()
+    torch.cuda.synchronize()
+    time1 = time.time()
     loss_avg = train(net=net, delay_print=delay_print)
+    torch.cuda.synchronize()
+    print(f"LSTM PYTORCH {(time.time() - time1):.3f}")
     print(f"LSTM PYTORCH LOSS AVG {loss_avg}")
 
+    ########## AUTOGRAD 
+    from src.autograd_lstm import LSTM
+
+    Util.seed_everything(args.seed)
+
+    rnn_custom = LSTM(
+        input_shape=model_params['input_shape'],
+        hidden_size=model_params['hiddden_size'],
+        num_layers=model_params['num_layers'],
+    )
+    delay_print = 100
+    net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
+
+    torch.cuda.synchronize()
+    time1 = time.time()
+    loss_avg = train(net=net, delay_print=delay_print)
+    torch.cuda.synchronize()
+    print(f"LSTM AUTOGRAD {(time.time() - time1):.3f}")
+    print(f"LSTM AUTOGRAD LOSS AVG {loss_avg}")
+
+
+
     ########## CUSTOM 
+    from src.lstm import LSTM
 
     Util.seed_everything(args.seed)
     rnn_custom = LSTM(
@@ -158,6 +185,11 @@ if __name__ == "__main__":
         num_layers=model_params['num_layers'],
     )
     delay_print = 100
-    net = Model(rnn=rnn_custom, jit=True).to(args.device).float()
+    net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
+    torch.cuda.synchronize()
+    time1 = time.time()
     loss_avg = train(net=net, delay_print=delay_print)
+    torch.cuda.synchronize()
+    print(f"LSTM CUSTOM {(time.time() - time1):.3f}")
     print(f"LSTM CUSTOM LOSS AVG {loss_avg}")
+
