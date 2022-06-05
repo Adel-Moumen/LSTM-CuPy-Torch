@@ -153,6 +153,28 @@ if __name__ == "__main__":
     print(f"LSTM PYTORCH {(time.time() - time1):.3f}")
     print(f"LSTM PYTORCH LOSS AVG {loss_avg}")
 
+
+    ########## JIT + AUTOGRAD 
+    from src.jit_autograd_lstm import LSTM
+
+    Util.seed_everything(args.seed)
+
+    rnn_custom = LSTM(
+        input_shape=model_params['input_shape'],
+        hidden_size=model_params['hiddden_size'],
+        num_layers=model_params['num_layers'],
+    )
+    delay_print = 100
+    net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
+
+    torch.cuda.synchronize()
+    time1 = time.time()
+    loss_avg = train(net=net, delay_print=delay_print)
+    torch.cuda.synchronize()
+    print(f"LSTM JIT AUTOGRAD {(time.time() - time1):.3f}")
+    print(f"LSTM JIT AUTOGRAD LOSS AVG {loss_avg}")
+
+
     ########## AUTOGRAD 
     from src.autograd_lstm import LSTM
 
