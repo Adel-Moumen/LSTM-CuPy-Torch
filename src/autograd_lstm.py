@@ -1,10 +1,104 @@
+
 import torch
 import torch.nn as nn 
 import torch.autograd as autograd 
-import torch.nn.functional as F
 
 from typing import Optional, Tuple
 from torch import Tensor
+
+class _LSTM_Cell(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, wx,  u, u_bias, ht, ct):
+        # Loop over time axis
+        hiddens = []
+        cell_state = []
+        save_it = []
+        save_ft = []
+        save_gt = []
+        save_ot = []
+
+        for k in range(wx.shape[1]):
+
+            gates = wx[:, k] + (ht @ u.T) + u_bias 
+            it, ft, gt, ot = gates.chunk(4, dim=1)
+
+            it = torch.sigmoid(it)
+            ft = torch.sigmoid(ft)
+            gt = torch.tanh(gt)
+            ot = torch.sigmoid(ot)
+
+            save_it.append(it)
+            save_ft.append(ft)
+            save_gt.append(gt)
+            save_ot.append(ot)
+
+            ct = ft * ct + it * gt 
+            ht =  ot * torch.tanh(ct)
+
+            hiddens.append(ht)
+            cell_state.append(ct)
+
+        # Stacking states
+        h = torch.stack(hiddens, dim=1)
+        c = torch.stack(cell_state, dim=1)
+        it = torch.stack(save_it, dim=1)
+        ft = torch.stack(save_ft, dim=1)
+        gt = torch.stack(save_gt, dim=1)
+        ot = torch.stack(save_ot, dim=1)
+
+        ctx.save_for_backward(it, ft, gt, ot, c, h, u, wx)
+
+        return h, c
+
+    @staticmethod
+    def backward(ctx, grad_out_h, grad_out_c):
+        it, ft, gt, ot, c, h, u, wx = ctx.saved_tensors
+
+        dh_prev, dc_prev = 0, 0
+
+        di = torch.zeros_like(it)
+        df = torch.zeros_like(ft)
+        dg = torch.zeros_like(gt)
+        do = torch.zeros_like(ot)
+
+        h_init = torch.zeros_like(h[:, 0])
+        c_init = torch.zeros_like(c[:, 0])
+        du = torch.zeros_like(u)
+        for t in reversed(range(wx.shape[1])):
+
+            dh = grad_out_h[:, t] + dh_prev
+            dc = (1 - torch.tanh(c[:, t]) ** 2) * ot[:, t] * dh + dc_prev + grad_out_c[:, t]
+
+            _di = dc  * gt[:, t] * ((1 - it[:, t]) * it[:, t])
+
+            
+            ct = c_init if t - 1 < 0 else c[:, t-1]
+
+            _df = dc  * ct * ((1 - ft[:, t]) * ft[:, t])
+
+            _dg = dc  *  it[:, t] * (1 - gt[:, t] ** 2)
+            _do = dh * torch.tanh(c[:, t]) * ((1 - ot[:, t]) * ot[:, t])
+
+            di[:, t] = _di
+            df[:, t] = _df
+            dg[:, t] = _dg
+            do[:, t] = _do
+
+
+            tmp = torch.cat((_di, _df, _dg, _do), 1)
+
+            ht = h_init if t - 1 < 0 else h[:, t-1]
+            
+            du += tmp.T @ ht
+
+
+            dh_prev = tmp @ u 
+            dc_prev = dc * ft[:, t]
+            
+        dwx = torch.cat((di, df, dg, do), axis=2)
+
+        return dwx, du, dwx, None, None
 
 
 class LSTM(torch.nn.Module):
@@ -170,13 +264,15 @@ class LSTM_Layer(torch.nn.Module):
         # Change batch size if needed
         self._change_batch_size(x)
         
+        wx = self.w(x)
         
         # Processing time steps
         if hx is not None:
             h, c, = hx 
-            h, c = self._lstm_cell(x, h, c)
+
+            h, c = _LSTM_Cell.apply(wx, self.u.weight, self.u.bias, h, c)
         else:
-            h, c = self._lstm_cell(x, self.h_init, self.c_init)
+            h, c = _LSTM_Cell.apply(wx, self.u.weight, self.u.bias, self.h_init, self.c_init)
 
         if self.bidirectional:
             h_f, h_b = h.chunk(2, dim=0)
@@ -187,43 +283,6 @@ class LSTM_Layer(torch.nn.Module):
             c_b = c_b.flip(1)
             c = torch.cat([c_f, c_b], dim=2)
 
-        return h, c
-
-
-    def _lstm_cell(self, x: torch.Tensor, ht: torch.Tensor, ct: torch.Tensor):
-        """Returns the hidden states for each time step.
-        Arguments
-        ---------
-        wx : torch.Tensor
-            Linearly transformed input.
-        """
-        hiddens = []
-        cell_state = []
-
-        # Feed-forward affine transformations (all steps in parallel)
-        wx = self.w(x)
-
-        # Sampling dropout mask
-        drop_mask = self._sample_drop_mask(wx)
-
-        # Loop over time axis
-        for k in range(wx.shape[1]):
-            gates = wx[:, k] + self.u(ht)
-            it, ft, gt, ot = gates.chunk(4, dim=-1)
-            it = torch.sigmoid(it)
-            ft = torch.sigmoid(ft)
-            gt = torch.tanh(gt)
-            ot = torch.sigmoid(ot)
-
-            ct = ft * ct + it * gt 
-            ht = ot * torch.tanh(ct) * drop_mask
-
-            hiddens.append(ht)
-            cell_state.append(ct)
-
-        # Stacking states
-        h = torch.stack(hiddens, dim=1)
-        c = torch.stack(cell_state, dim=1)
         return h, c
 
     def _sample_drop_mask(self, w):
@@ -299,113 +358,6 @@ def rnn_init(module):
         if "weight_hh" in name or ".u.weight" in name:
             nn.init.orthogonal_(param)
 
-    
-
-
-class LSTM_Cell_Vanilla(autograd.Function):
-
-    @staticmethod
-    def forward(ctx, x, u, u_bias, w, w_bias, ht, ct):
-
-        hiddens = []
-        cell_state = []
-
-        # Feed-forward affine transformations (all steps in parallel)
-        wx = (x @ w.T) + w_bias
-
-        # Sampling dropout mask
-        #drop_mask = self._sample_drop_mask(wx)
-
-        # Loop over time axis
-        for k in range(wx.shape[1]):
-            gates = wx[:, k] + (ht @ u.T) + u_bias 
-            it, ft, gt, ot = gates.chunk(4, dim=-1)
-            it = torch.sigmoid(it)
-            ft = torch.sigmoid(ft)
-            gt = torch.tanh(gt)
-            ot = torch.sigmoid(ot)
-
-            ct = ft * ct + it * gt 
-            ht = ot * torch.tanh(ct) #* drop_mask
-
-            hiddens.append(ht)
-            cell_state.append(ct)
-
-        # Stacking states
-        h = torch.stack(hiddens, dim=1)
-        c = torch.stack(cell_state, dim=1)
-        return h, c
-
-    @staticmethod
-    def backward(ctx, grad_out_h, grad_out_c):
-        return None, None, None, None, None 
-
-class LSTM_Cell(autograd.Function):
-
-    @staticmethod
-    def forward(ctx, wx, u, u_bias, ht, ct):
-
-        hiddens = []
-        cell_state = []
-
-        # Sampling dropout mask
-        #drop_mask = self._sample_drop_mask(wx)
-
-        # Loop over time axis
-        for k in range(wx.shape[1]):
-            ht, ct = _LSTM_Cell.apply(wx[:, k], u, u_bias, ht, ct)
-
-            hiddens.append(ht)
-            cell_state.append(ct)
-
-        # Stacking states
-        h = torch.stack(hiddens, dim=1)
-        c = torch.stack(cell_state, dim=1)
-        return h, c
-
-    @staticmethod
-    def backward(ctx, grad_out_h, grad_out_c):
-        return None, None, None, None, None 
-
-class _LSTM_Cell(autograd.Function):
-
-    @staticmethod
-    def forward(ctx, wx,  u, u_bias, ht, ct):
-        # Loop over time axis
-        gates = wx + (ht @ u.T) + u_bias 
-        it, ft, gt, ot = gates.chunk(4, dim=1)
-
-        it = torch.sigmoid(it)
-        ft = torch.sigmoid(ft)
-        gt = torch.tanh(gt)
-        ot = torch.sigmoid(ot)
-        ctx.save_for_backward(it, ft, gt, ot, ct, ht, u)
-        ct = ft * ct + it * gt 
-        ht =  ot * torch.tanh(ct)
-        ctx.ct = ct
-
-        return ht, ct
-
-    @staticmethod
-    def backward(ctx, grad_out_h, grad_out_c):
-        it, ft, gt, ot, ctt, htt, u = ctx.saved_tensors
-
-        ct = ctx.ct
-
-        dh = (1 - torch.tanh(ct) ** 2) * ot * grad_out_h + grad_out_c
-        di = dh  * gt * ((1 - it) * it)
-        df = dh  * ctt * ((1 - ft) * ft)
-        dg = dh  *  it * (1 - gt ** 2)
-        do = grad_out_h * torch.tanh(ct) * ((1 - ot) * ot)
-
-        
-        dwx = torch.cat((di, df, dg, do), axis=1)
-        du =  ( dwx.T @ htt ) 
-
-        return dwx, du, dwx, dwx @ u, dh *  ft
-
-
-
 
 if __name__ == "__main__":
 
@@ -415,21 +367,11 @@ if __name__ == "__main__":
     seq_length=10
     
     x = torch.randn(batch_size, seq_length, input_size)
-    lstm_layer = LSTM_Layer(
-        input_size=input_size,
-        hidden_size=hidden_size,
-        num_layers=5,
-        batch_size=batch_size,
-        dropout=0.0,
-        bias=True,
-        bidirectional=False
-    )
+
 
     inp_tensor = torch.rand([4, 10, 20])
     net = LSTM(input_shape=inp_tensor.shape, hidden_size=5)
-    out_tensor, h, c = net(inp_tensor)
-    
-    
 
-    out_tensor, h, c = net(inp_tensor, (h, c))
+    out_tensor,(h, c) = net(inp_tensor)
+    out_tensor, (h, c) = net(inp_tensor, (h, c))
     
