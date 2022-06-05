@@ -299,7 +299,114 @@ def rnn_init(module):
         if "weight_hh" in name or ".u.weight" in name:
             nn.init.orthogonal_(param)
 
+    
+
+
+class LSTM_Cell_Vanilla(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, u, u_bias, w, w_bias, ht, ct):
+
+        hiddens = []
+        cell_state = []
+
+        # Feed-forward affine transformations (all steps in parallel)
+        wx = (x @ w.T) + w_bias
+
+        # Sampling dropout mask
+        #drop_mask = self._sample_drop_mask(wx)
+
+        # Loop over time axis
+        for k in range(wx.shape[1]):
+            gates = wx[:, k] + (ht @ u.T) + u_bias 
+            it, ft, gt, ot = gates.chunk(4, dim=-1)
+            it = torch.sigmoid(it)
+            ft = torch.sigmoid(ft)
+            gt = torch.tanh(gt)
+            ot = torch.sigmoid(ot)
+
+            ct = ft * ct + it * gt 
+            ht = ot * torch.tanh(ct) #* drop_mask
+
+            hiddens.append(ht)
+            cell_state.append(ct)
+
+        # Stacking states
+        h = torch.stack(hiddens, dim=1)
+        c = torch.stack(cell_state, dim=1)
+        return h, c
+
+    @staticmethod
+    def backward(ctx, grad_out_h, grad_out_c):
+        return None, None, None, None, None 
+
+class LSTM_Cell(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, wx, u, u_bias, ht, ct):
+
+        hiddens = []
+        cell_state = []
+
+        # Sampling dropout mask
+        #drop_mask = self._sample_drop_mask(wx)
+
+        # Loop over time axis
+        for k in range(wx.shape[1]):
+            ht, ct = _LSTM_Cell.apply(wx[:, k], u, u_bias, ht, ct)
+
+            hiddens.append(ht)
+            cell_state.append(ct)
+
+        # Stacking states
+        h = torch.stack(hiddens, dim=1)
+        c = torch.stack(cell_state, dim=1)
+        return h, c
+
+    @staticmethod
+    def backward(ctx, grad_out_h, grad_out_c):
+        return None, None, None, None, None 
+
+class _LSTM_Cell(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, wx,  u, u_bias, ht, ct):
+        # Loop over time axis
+        gates = wx + (ht @ u.T) + u_bias 
+        it, ft, gt, ot = gates.chunk(4, dim=1)
+
+        it = torch.sigmoid(it)
+        ft = torch.sigmoid(ft)
+        gt = torch.tanh(gt)
+        ot = torch.sigmoid(ot)
+        ctx.save_for_backward(it, ft, gt, ot, ct, ht, u)
+        ct = ft * ct + it * gt 
+        ht =  ot * torch.tanh(ct)
+        ctx.ct = ct
+
+        return ht, ct
+
+    @staticmethod
+    def backward(ctx, grad_out_h, grad_out_c):
+        it, ft, gt, ot, ctt, htt, u = ctx.saved_tensors
+
+        ct = ctx.ct
+
+        dh = (1 - torch.tanh(ct) ** 2) * ot * grad_out_h + grad_out_c
+        di = dh  * gt * ((1 - it) * it)
+        df = dh  * ctt * ((1 - ft) * ft)
+        dg = dh  *  it * (1 - gt ** 2)
+        do = grad_out_h * torch.tanh(ct) * ((1 - ot) * ot)
+
         
+        dwx = torch.cat((di, df, dg, do), axis=1)
+        du =  ( dwx.T @ htt ) 
+
+        return dwx, du, dwx, dwx @ u, dh *  ft
+
+
+
+
 if __name__ == "__main__":
 
     hidden_size = 5
