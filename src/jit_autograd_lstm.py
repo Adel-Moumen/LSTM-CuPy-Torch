@@ -6,10 +6,15 @@ import torch.autograd as autograd
 from typing import Optional, Tuple
 from torch import Tensor
 
-class _LSTM_Cell(autograd.Function):
 
-    @staticmethod
-    def forward(ctx, wx,  u, u_bias, ht, ct):
+class _lstm_cell_jit(torch.nn.Module):
+    """This class redefines the forward of a LiGRU cell.
+    """
+
+    def __init__(self):
+        super(_lstm_cell_jit, self).__init__()
+
+    def forward(self, wx, u, u_bias, ht, ct):
         #TODO: Add drop mask
 
         # Loop over time axis
@@ -49,6 +54,14 @@ class _LSTM_Cell(autograd.Function):
         gt = torch.stack(save_gt, dim=1)
         ot = torch.stack(save_ot, dim=1)
 
+        return h, c, it, ft, gt, ot 
+
+class _LSTM_Cell(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, cell_jit, wx, u, u_bias, ht, ct):
+        
+        h, c, it, ft, gt, ot = cell_jit(wx, u, u_bias, ht, ct)
         ctx.save_for_backward(it, ft, gt, ot, c, h, u, wx)
 
         return h, c
@@ -100,7 +113,7 @@ class _LSTM_Cell(autograd.Function):
             
         dwx = torch.cat((di, df, dg, do), axis=2)
 
-        return dwx, du, dwx, None, None
+        return None, dwx, du, dwx, None, None
 
 
 class LSTM(torch.nn.Module):
@@ -250,6 +263,8 @@ class LSTM_Layer(torch.nn.Module):
         # Preloading dropout masks (gives some speed improvement)
         self._init_drop()
 
+        self._lstm_cell_jit = torch.jit.script(_lstm_cell_jit())
+
 
     def forward(self, x, hx: Optional[Tuple[torch.Tensor, torch.Tensor]] = None):
         # type: (torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor] # noqa F821
@@ -272,9 +287,9 @@ class LSTM_Layer(torch.nn.Module):
         if hx is not None:
             h, c, = hx 
 
-            h, c = _LSTM_Cell.apply(wx, self.u.weight, self.u.bias, h, c)
+            h, c = _LSTM_Cell.apply(self._lstm_cell_jit, wx, self.u.weight, self.u.bias, h, c)
         else:
-            h, c = _LSTM_Cell.apply(wx, self.u.weight, self.u.bias, self.h_init, self.c_init)
+            h, c = _LSTM_Cell.apply(self._lstm_cell_jit, wx, self.u.weight, self.u.bias, self.h_init, self.c_init)
 
         if self.bidirectional:
             h_f, h_b = h.chunk(2, dim=0)
@@ -359,7 +374,6 @@ def rnn_init(module):
     for name, param in module.named_parameters():
         if "weight_hh" in name or ".u.weight" in name:
             nn.init.orthogonal_(param)
-
 
 if __name__ == "__main__":
 
