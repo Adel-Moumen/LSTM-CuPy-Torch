@@ -50,11 +50,8 @@ class _lstm_cell_jit(torch.nn.Module):
         h = torch.stack(hiddens, dim=1)
         c = torch.stack(cell_state, dim=1)
         it = torch.stack(save_it, dim=1)
-        ft = torch.stack(save_ft, dim=1)
-        gt = torch.stack(save_gt, dim=1)
-        ot = torch.stack(save_ot, dim=1)
-
-        return h, c, it, ft, gt, ot 
+        
+        return h, c, save_it, save_ft, save_gt, save_ot 
 
 class _LSTM_Cell(autograd.Function):
 
@@ -62,20 +59,30 @@ class _LSTM_Cell(autograd.Function):
     def forward(ctx, cell_jit, wx, u, u_bias, ht, ct):
         
         h, c, it, ft, gt, ot = cell_jit(wx, u, u_bias, ht, ct)
-        ctx.save_for_backward(it, ft, gt, ot, c, h, u, wx)
+        ctx.save_for_backward(c, h, u, wx)
+
+        ctx.it = it 
+        ctx.ft = ft 
+        ctx.gt = gt 
+        ctx.ot = ot 
 
         return h, c
 
     @staticmethod
     def backward(ctx, grad_out_h, grad_out_c):
-        it, ft, gt, ot, c, h, u, wx = ctx.saved_tensors
+        c, h, u, wx = ctx.saved_tensors
+
+        it = ctx.it 
+        ft = ctx.ft 
+        gt = ctx.gt 
+        ot = ctx.ot 
 
         dh_prev, dc_prev = 0, 0
 
-        di = torch.zeros_like(it)
-        df = torch.zeros_like(ft)
-        dg = torch.zeros_like(gt)
-        do = torch.zeros_like(ot)
+        di = torch.zeros_like(h)
+        df = torch.zeros_like(h)
+        dg = torch.zeros_like(h)
+        do = torch.zeros_like(h)
 
         h_init = torch.zeros_like(h[:, 0])
         c_init = torch.zeros_like(c[:, 0])
@@ -83,17 +90,17 @@ class _LSTM_Cell(autograd.Function):
         for t in reversed(range(wx.shape[1])):
 
             dh = grad_out_h[:, t] + dh_prev
-            dc = (1 - torch.tanh(c[:, t]) ** 2) * ot[:, t] * dh + dc_prev + grad_out_c[:, t]
+            dc = (1 - torch.tanh(c[:, t]) ** 2) * ot[t] * dh + dc_prev + grad_out_c[:, t]
 
-            _di = dc  * gt[:, t] * ((1 - it[:, t]) * it[:, t])
+            _di = dc  * gt[t] * ((1 - it[t]) * it[t])
 
             
             ct = c_init if t - 1 < 0 else c[:, t-1]
 
-            _df = dc  * ct * ((1 - ft[:, t]) * ft[:, t])
+            _df = dc  * ct * ((1 - ft[t]) * ft[t])
 
-            _dg = dc  *  it[:, t] * (1 - gt[:, t] ** 2)
-            _do = dh * torch.tanh(c[:, t]) * ((1 - ot[:, t]) * ot[:, t])
+            _dg = dc  *  it[t] * (1 - gt[t] ** 2)
+            _do = dh * torch.tanh(c[:, t]) * ((1 - ot[t]) * ot[t])
 
             di[:, t] = _di
             df[:, t] = _df
@@ -109,7 +116,7 @@ class _LSTM_Cell(autograd.Function):
 
 
             dh_prev = tmp @ u 
-            dc_prev = dc * ft[:, t]
+            dc_prev = dc * ft[t]
             
         dwx = torch.cat((di, df, dg, do), axis=2)
 
