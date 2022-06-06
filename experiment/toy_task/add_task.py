@@ -123,35 +123,33 @@ if __name__ == "__main__":
     import time 
     Util.print_setup(args=args)
 
+    delay_print = 100
+
+
     model_params = {
         'input_shape': (args.batch_size, args.seq_length, 2),
         'hiddden_size': args.hidden_size,
         'num_layers': args.num_layers,
     }  
     
-
-    ########## PYTORCH 
+    ########## CUSTOM 
+    from src.lstm import LSTM
 
     Util.seed_everything(args.seed)
-    rnn_pytorch =  torch.nn.LSTM(
-        input_size=model_params['input_shape'][2],
+    rnn_custom = LSTM(
+        input_shape=model_params['input_shape'],
         hidden_size=model_params['hiddden_size'],
         num_layers=model_params['num_layers'],
-        dropout=0,
-        bidirectional=False,
-        bias=True,
-        batch_first=True,
     )
-    
-
-    delay_print = 10
-    net = Model(rnn=rnn_pytorch).to(args.device).float()
+    delay_print = 100
+    net = Model(rnn=rnn_custom, jit=True).to(args.device).float()
     torch.cuda.synchronize()
     time1 = time.time()
     loss_avg = train(net=net, delay_print=delay_print)
     torch.cuda.synchronize()
-    print(f"LSTM PYTORCH {(time.time() - time1):.3f}")
-    print(f"LSTM PYTORCH LOSS AVG {loss_avg}")
+    print(f"LSTM CUSTOM (VANILLA) {(time.time() - time1):.3f}")
+    print(f"LSTM CUSTOM (VANILLA) LOSS AVG {loss_avg}")
+
 
 
     ########## JIT + AUTOGRAD 
@@ -164,15 +162,35 @@ if __name__ == "__main__":
         hidden_size=model_params['hiddden_size'],
         num_layers=model_params['num_layers'],
     )
-    delay_print = 100
     net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
 
     torch.cuda.synchronize()
     time1 = time.time()
     loss_avg = train(net=net, delay_print=delay_print)
     torch.cuda.synchronize()
-    print(f"LSTM JIT AUTOGRAD {(time.time() - time1):.3f}")
-    print(f"LSTM JIT AUTOGRAD LOSS AVG {loss_avg}")
+    print(f"LSTM JIT AUTOGRAD+JIT {(time.time() - time1):.3f}")
+    print(f"LSTM JIT AUTOGRAD+JIT LOSS AVG {loss_avg}")
+
+    ########## PYTORCH 
+    Util.seed_everything(args.seed)
+    rnn_pytorch =  torch.nn.LSTM(
+        input_size=model_params['input_shape'][2],
+        hidden_size=model_params['hiddden_size'],
+        num_layers=model_params['num_layers'],
+        dropout=0,
+        bidirectional=False,
+        bias=True,
+        batch_first=True,
+    )
+    
+
+    net = Model(rnn=rnn_pytorch).to(args.device).float()
+    torch.cuda.synchronize()
+    time1 = time.time()
+    loss_avg = train(net=net, delay_print=delay_print)
+    torch.cuda.synchronize()
+    print(f"LSTM PYTORCH {(time.time() - time1):.3f}")
+    print(f"LSTM PYTORCH LOSS AVG {loss_avg}")
 
 
     ########## AUTOGRAD 
@@ -185,33 +203,12 @@ if __name__ == "__main__":
         hidden_size=model_params['hiddden_size'],
         num_layers=model_params['num_layers'],
     )
-    delay_print = 100
     net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
 
     torch.cuda.synchronize()
     time1 = time.time()
     loss_avg = train(net=net, delay_print=delay_print)
     torch.cuda.synchronize()
-    print(f"LSTM AUTOGRAD {(time.time() - time1):.3f}")
-    print(f"LSTM AUTOGRAD LOSS AVG {loss_avg}")
-
-
-
-    ########## CUSTOM 
-    from src.lstm import LSTM
-
-    Util.seed_everything(args.seed)
-    rnn_custom = LSTM(
-        input_shape=model_params['input_shape'],
-        hidden_size=model_params['hiddden_size'],
-        num_layers=model_params['num_layers'],
-    )
-    delay_print = 100
-    net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
-    torch.cuda.synchronize()
-    time1 = time.time()
-    loss_avg = train(net=net, delay_print=delay_print)
-    torch.cuda.synchronize()
-    print(f"LSTM CUSTOM {(time.time() - time1):.3f}")
-    print(f"LSTM CUSTOM LOSS AVG {loss_avg}")
+    print(f"LSTM AUTOGRAD (NO JIT) {(time.time() - time1):.3f}")
+    print(f"LSTM AUTOGRAD (NO JIT) LOSS AVG {loss_avg}")
 
