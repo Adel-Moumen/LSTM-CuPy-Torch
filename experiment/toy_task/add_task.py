@@ -85,7 +85,7 @@ def generate_batch(seq_length, batch_size):
 
 
 
-def train(net, delay_print):
+def train(net, delay_print, epochs):
 
     optimizer = optim.Adam(net.parameters(), lr=args.learning_rate)
 
@@ -93,7 +93,7 @@ def train(net, delay_print):
 
     net.train()
     minimum_loss = 0
-    for epoch in range(args.epochs+1):
+    for epoch in range(epochs+1):
 
         x, y = generate_batch(
             seq_length=args.seq_length,
@@ -133,6 +133,29 @@ if __name__ == "__main__":
     }  
     
     ########## CUSTOM 
+    from src.cupy_jit_autograd_lstm import LSTM
+
+    Util.seed_everything(args.seed)
+    rnn_custom = LSTM(
+        input_shape=model_params['input_shape'],
+        hidden_size=model_params['hiddden_size'],
+        num_layers=model_params['num_layers'],
+    )
+    delay_print = 100
+    net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
+
+    #warmup
+    loss_avg = train(net=net, delay_print=delay_print, epochs=1000)
+
+    torch.cuda.synchronize()
+    time1 = time.time()
+    loss_avg = train(net=net, delay_print=delay_print, epochs=500)
+    torch.cuda.synchronize()
+    print(f"LSTM JIT AUTOGRAD+JIT+CUPY {(time.time() - time1):.3f}")
+    print(f"LSTM JIT AUTOGRAD+JIT+CUPY LOSS AVG {loss_avg}")
+
+
+    ########## CUSTOM 
     from src.lstm import LSTM
 
     Util.seed_everything(args.seed)
@@ -142,10 +165,13 @@ if __name__ == "__main__":
         num_layers=model_params['num_layers'],
     )
     delay_print = 100
-    net = Model(rnn=rnn_custom, jit=True).to(args.device).float()
+    net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
+    #warmup
+    loss_avg = train(net=net, delay_print=delay_print, epochs=1000)
+
     torch.cuda.synchronize()
     time1 = time.time()
-    loss_avg = train(net=net, delay_print=delay_print)
+    loss_avg = train(net=net, delay_print=delay_print, epochs=500)
     torch.cuda.synchronize()
     print(f"LSTM CUSTOM (VANILLA) {(time.time() - time1):.3f}")
     print(f"LSTM CUSTOM (VANILLA) LOSS AVG {loss_avg}")
@@ -164,9 +190,11 @@ if __name__ == "__main__":
     )
     net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
 
+    #warmup
+    loss_avg = train(net=net, delay_print=delay_print, epochs=10)
     torch.cuda.synchronize()
     time1 = time.time()
-    loss_avg = train(net=net, delay_print=delay_print)
+    loss_avg = train(net=net, delay_print=delay_print, epochs=500)
     torch.cuda.synchronize()
     print(f"LSTM JIT AUTOGRAD+JIT {(time.time() - time1):.3f}")
     print(f"LSTM JIT AUTOGRAD+JIT LOSS AVG {loss_avg}")
@@ -185,9 +213,11 @@ if __name__ == "__main__":
     
 
     net = Model(rnn=rnn_pytorch).to(args.device).float()
+    #warmup
+    loss_avg = train(net=net, delay_print=delay_print, epochs=10)
     torch.cuda.synchronize()
     time1 = time.time()
-    loss_avg = train(net=net, delay_print=delay_print)
+    loss_avg = train(net=net, delay_print=delay_print, epochs=500)
     torch.cuda.synchronize()
     print(f"LSTM PYTORCH {(time.time() - time1):.3f}")
     print(f"LSTM PYTORCH LOSS AVG {loss_avg}")
@@ -204,10 +234,11 @@ if __name__ == "__main__":
         num_layers=model_params['num_layers'],
     )
     net = Model(rnn=rnn_custom, jit=False).to(args.device).float()
-
+    #warmup
+    loss_avg = train(net=net, delay_print=delay_print, epochs=10)
     torch.cuda.synchronize()
     time1 = time.time()
-    loss_avg = train(net=net, delay_print=delay_print)
+    loss_avg = train(net=net, delay_print=delay_print, epochs=500)
     torch.cuda.synchronize()
     print(f"LSTM AUTOGRAD (NO JIT) {(time.time() - time1):.3f}")
     print(f"LSTM AUTOGRAD (NO JIT) LOSS AVG {loss_avg}")
